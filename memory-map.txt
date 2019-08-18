@@ -1,0 +1,256 @@
+MEMORY-MAPPING
+==============
+
+Thoughts spawned from this thread:
+- https://www.forum64.de/index.php?thread/90784-map-instruction/
+
+
+Possible location for this info:
+-------------------------------
+
+* Possibly within "Appendix D - 45GS02 Microprocessor" - "Extended Memory Support" - "Using the MAP instruction to access >1MiB".
+
+* As this section's intention may have been to give a brief overview of the various ways to access extended memory, perhaps these details could have their own "Memory mapping" section somewhere else?
+
+
+The C64's original memory mapping options
+=========================================
+Source: C64 Programmer's Reference Guide
+
+Address 0:
+---------
+MOS 6510 Data Direction Register
+Defaults to: (xx101111)
+    1: Output
+    0: Input
+    x: Don't care
+
+Address 1:
+---------
+MOS 6510 Micro-Processor On-Chip I/O Port
+Bit0 = /LORAM Signal (0=Switch BASIC ROM out)
+Bit1 = /HIRAM Signal (0=Switch Kernal ROM out)
+Bit2 = /CHAREN Signal (0=Switch Char. ROM In)
+Bit3 = Cassette Data Output Line
+Bit4 = Cassette Switch Sense (1=Switch Closed)
+Bit5 = Cassette Motor Control (0=ON, 1=OFF)
+Bits6-7 = Undefined
+
+
+The C65's $D030 register
+========================
+Source: c65manual.txt and tidbits from Paul's blogs
+
+Bit0 = CRAM@DC00
+				If reset to 0, replaces the I/O at $DC00-$DCFF with an extra 1KB of colour RAM
+       	(original 1KB of colour RAM is always located at $D800-$DBFF)
+Bit1 = EXT SYNC
+Bit2 = PAL
+Bit3 = ROM@8000
+Bit4 = ROM@A000
+Bit5 = ROM@C000
+Bit6 = CROM@9000
+Bit7 = ROM@E000
+
+
+The C65's MAP instruction
+=========================
+Taken from c65 manual: 2.3.4. Memory Mapper
+
+     The   microprocessor   core  is  actually  a  C4502R1  with  some
+additional instructions, used to operate the memory mapper.
+
+     The former AUG (augment) opcode has been changed to MAP (mapper),
+and  the  former  NOP  (no-operation) has been changed to EOM (end-of-
+mapping-sequence).
+
+     The  4510 memory mapper allows the microprocessor to access up to
+1 megabyte  of  memory.  Here's how.  The 6502 microprocessor can only
+access 64K bytes of memory because it only uses addresses of 16 bit's.
+The 4502 is not different, nor is the 4510. But the 4510 memory mapper
+allows  these  addresses  to  be  redirected to new physical addresses
+to access different parts of a much larger memory, within the 64K byte
+confinement window.
+
+     The  64K  window  has  been  divided  into  eight blocks, and two
+regions,  with  four blocks in each region.  Blocks 0 through 3 are in
+the  "lower" region, and blocks 4 through 7 are in the "upper" region,
+as shown...
+
+                    +-     +-----------+FFFF
+                    |      |   BLK 7   |
+                    |      +-----------+E000
+                    |      |   BLK 6   |
+      UPPER REGION -+      +-----------+C000
+                    |      |   BLK 5   |
+                    |      +-----------+A000
+                    |      |   BLK 4   |
+                    +-     +-----------+8000
+                    |      |   BLK 3   |
+                    |      +-----------+6000
+                    |      |   BLK 2   |
+      LOWER REGION -+      +-----------+4000
+                    |      |   BLK 1   |
+                    |      +-----------+2000
+                    |      |   BLK 0   |
+                    +-     +-----------+
+
+     Each block can be programmed to be "mapped",  or "non-mapped" via
+bits  in  the  mapper's  "mask" registers.  NON-MAPPED means,  simply,
+address  out  equals address in.  Therefore,  there are still only 64K
+bytes  of  non-mapped  memory.  MAPPED  means  that address out equals
+address in plus some offset. The offset is programmed via the mapper's
+"offset" registers.
+
+There are two "offset" registers. One is for the lower region, and one
+is for the upper region.
+
+     The low-order 6 addresses are never mapped.  The offsets are only
+added to the 12 high-order addresses. This means the smallest unit you
+can map to is 256 bytes, or one page.
+
+     The  4510 has an output (NOMAP) which lets the outside world know
+when the processor is accessing mapped (0)  or non-mapped (1) address.
+This  is  useful  for  systems where you may want I/O devices to be at
+fixed (non-mapped) addresses, and only memory at mapped addresses.
+
+     It is possible,  and likely, to have mapped,  and unmapped memory
+at the same physical address.  And, with offset registers set to zero,
+mapped addresses will match unmapped ones.  The only difference is the
+NOMAP signal to tell whether the address is mapped or unmapped.
+
+     To  program the mapper,  the operating system must load the A, X,
+Y,  and Z registers with the following information,  and execute a MAP
+opcode.
+
+                         Mapper Register Data
+
+     7       6       5       4       3       2       1       0    BIT
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ | LOWER | LOWER | LOWER | LOWER | LOWER | LOWER | LOWER | LOWER | A
+ | OFF15 | OFF14 | OFF13 | OFF12 | OFF11 | OFF10 | OFF9  | OFF8  |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ | MAP   | MAP   | MAP   | MAP   | LOWER | LOWER | LOWER | LOWER | X
+ | BLK3  | BLK2  | BLK1  | BLK0  | OFF19 | OFF18 | OFF17 | OFF16 |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ | UPPER | UPPER | UPPER | UPPER | UPPER | UPPER | UPPER | UPPER | Y
+ | OFF15 | OFF14 | OFF13 | OFF12 | OFF11 | OFF10 | OFF9  | OFF8  |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ | MAP   | MAP   | MAP   | MAP   | UPPER | UPPER | UPPER | UPPER | Z
+ | BLK7  | BLK6  | BLK5  | BLK4  | OFF19 | OFF18 | OFF17 | OFF16 |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+
+     After  executing  the  MAP opcode,  all interrupts are inhibited.
+This  is  done  to  allow  the  operating system is complete a mapping
+sequence without fear of getting an interrupt.  An interrupt occurring
+before  the proper stack-pointer is set will cause return address data
+to be written to an undesired area.
+
+     Upon  completing the mapping sequence,  the operating system must
+remove the interrupt inhibit by executing a EOM (formerly NOP) opcode.
+Note that application software may execute NOPs with no effect.
+
+
+The MEGA65's MAP instruction
+============================
+My thoughts from the forum64.de thread:
+
+Both examples I tried to dissect in this thread were actually calling MAP twice. The first MAP call was selecting the megabyte to use for the offset, while the 2nd MAP call was deciding where within that selected megabyte to treat as our absolute offset.
+
+
+Here's my diagram for the megabyte selector register usage:
+
+    MEGA65 Megabyte Selector Register Data
+
+     7       6       5       4       3       2       1       0    BIT
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ | LOWER | LOWER | LOWER | LOWER | LOWER | LOWER | LOWER | LOWER | A
+ | OFF27 | OFF26 | OFF25 | OFF24 | OFF23 | OFF22 | OFF21 | OFF20 |
+ |       |       |       |       |       |       |       |       |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ |                 MEGABYTE SELECTOR TOKEN (0x0F)                | X
+ |       |       |       |       |       |       |       |       |
+ |   0   |   0   |   0   |   0   |   1   |   1   |   1   |   1   |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ | UPPER | UPPER | UPPER | UPPER | UPPER | UPPER | UPPER | UPPER | Y
+ | OFF27 | OFF26 | OFF25 | OFF24 | OFF23 | OFF22 | OFF21 | OFF20 |
+ |       |       |       |       |       |       |       |       |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+ |                 MEGABYTE SELECTOR TOKEN (0x0F)                | Z
+ |       |       |       |       |       |       |       |       |
+ |   0   |   0   |   0   |   0   |   1   |   1   |   1   |   1   |
+ +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+Note that:
+
+  *  A-register will contain bits 20-27 of your MAPL offset (which equates to the megabyte selected)
+  *  X-register will contain an 0x0F token value, to indicate that we intend to make a 'megabyte selection' in the A-register
+  *  Y-register will contain bits 20-27 of your MAPH offset (which equates to the megabyte selected)
+  *  Z-register will contain an 0x0F token value, to indicate that we intend to make a 'megabyte selection' in the Y-register
+
+
+
+Precedence
+==========
+Gabor had some info on this in the thread:
+
+Just we must be careful here, even C64-way of "MMU" (CPU port @ addr 0/1) results in CPU_address - physical_address translation, just it's different than the one done initiated by the MAP instruction ... And again, VIC-III ROM mapping is another layer, which overrides everything. So in order of priority:
+
+
+1. if CPU address refers to a memory area subject of VIC-III ROM mapping, _AND_ $D030 VIC-III register instructs the mapping actually, then the physical address is calculated according this scheme.
+
+2. if the previous condition does not apply, 8K block of the CPU address is checked if it's set to '1' (mapped) or '0' (not mapped). If mapped, then the CPU address is added to an offset ("upper" offset if the CPU address is the upper 32K, "lower" offset if the lower 32K) but excluding the lower 8 bits of the CPU address which is "pass-through". The generated address will be the physical address for the access at system level.
+
+3. if even the previous condition does not apply (ie, not VIC-III ROM "mapped", and 8K memory block is marked as not-mapped by MAP instruction), then the address is subject of the C64-style translation only, so it's done as it would be a Commodore 64, with CPU I/O port @ 0/1. Still, the result in physical addresses is different than a C64, since the construction of the machine is different, but from user point of view at least (what the program "sees") it's the same process.
+
+
+This also means, that if you want to access I/O area at $D000, it can be done to set non-mapped for that block via MAP instruction, and set 0/1 CPU I/O port which enables the I/O area. This is the only way done by the CPU you can access I/O on C65 (you can do it via DMA though, but that's DIFFERENT, since DMA does not apply the CPU's memory mapping!!!!!!!!!). On M65, the situation can be resolved other way too though (which is not possible on C65). On M65, the actual I/O area (areas ... since there are some, for each I/O mode, let it be VIC-II, VIC-III or VIC-IV ... according to the VIC "key" register) is for real, can be seen as a part of the physical address space as well, though, for that you must either use extended MAP functionality to set the "megabyte slice" for the mapping, or use can instruct extended DMA stuff to address it, or you can use M65's linear addressing mode to generate direct physical address by the CPU itself, without any MMU scheme or such applied. But these are M65-specific, and cannot be used on C65 (you can still use C65 to set DMA to address the I/O space _only_ regardless of anything other)
+
+
+Mapping Arithmetic
+==================
+  *  Gabor's terminology/formula clicked for me:
+
+    Physical Address = CPU Address + Offset
+
+Gabor elaborated in the forum64.de thread:
+
+Actually I "formula" should be (for MAP, but do not forget that a cpu_address may be not MAPed, or VIC-III ROM mapping overrides this, or you bypass this address translation totally with "linear address mode" etc):
+
+
+physical_address = (((map_offset << 8) + cpu_address) & $FFFFF) | (megabyte_selection << 20)
+
+
+So, "map_offset" is chosen from the "lower" or "upper" offset based on the highest bit of the CPU address (thus lower or upper 32K). Since the offset does not represents the lower 8 bits, I used the "<<" shift operation for offset. The cpu_address is added to the map_offset, and the result is truncated to fit into 1 mbyte (ie, 20 bits, that is the "& $FFFFF" part). And at last, the upper 8 bits of the physical address is come from the "mbyte_selection (thus the "<< 20") while the lower 20 bits from the previous explanation.
+
+
+
+
+Interpreting the physical address
+=================================
+In the C64 world, we've only ever concerned ourselves with 16-bit addresses to span across 64 kilobytes of memory (0000-FFFF).
+
+In the C65 world, we now concern ourselves with 20-bit addresses to span across 1 megabyte of memory (00000-FFFFF). From the perspective of the C65 manual, this upper nibble gets referred to as a BANK number (ranging from 0-15), with each BANK number referring to a unique block of 64kb within this 1 megabyte address-space.
+
+In the MEGA65 world, we now concern ourselves with 28-bit addresses to span across potentially 256 megabytes of memory (0000000-FFFFFFF). From the perspective of MEGA65 literature, these upper 8-bits are referred to as the MEGABYTE SELECTION (ranging from 0-255), with each MEGABYTE SELECTION number referring to a unique block of 1mb within the 256mb address-space.
+
+Here is an example breaking down how terms like "Megabyte selection" and "Bank" selection relate to the following physical address:
+     
+     +----- MEGABYTE SELECTION
+     |
+     | +--- BANK
+     | |
+    $FFDE800
+
+    Bank = $D
+
+    Megabyte-selection = $FF
+
+
+Usage of MAP for the MEGA65
+===========================
+A walkthrough of an example that demonstrates all 3 MAP calls mentioned in the appendix:
+  1) disabling of mapping,
+  2) megabyte selection,
+  3) offset + 8KB block selection
